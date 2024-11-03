@@ -15,4 +15,4 @@
 1. ติดตั้งไลบรารีที่จำเป็น:
 ```bash pip install aiohttp discord requests beautifulsoup4```
 3. แก้ไขค่า TOKEN ในโค้ดด้วยโทเค็นของบอท Discord
-4. รันบอท : python yourfilename.py
+4. รันบอท : ```python yourfilename.py```
