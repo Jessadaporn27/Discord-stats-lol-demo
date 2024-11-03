@@ -1,10 +1,11 @@
+import aiohttp
 import discord
 from discord.ext import commands
 import requests
 from bs4 import BeautifulSoup
 
 
-TOKEN = "MTMwMjIzNjA3NjUyMTQyNzAxNA.GbAuVs.2K31eS0gsXSTSFQk-LiMZpycS8rlea_cogUsy8"
+TOKEN = "token here"
 
 # สร้าง Intents และเปิดใช้งานค่าเริ่มต้น
 intents = discord.Intents.default()
@@ -13,53 +14,96 @@ intents.message_content = True  # เปิดใช้งานการเข�
 # สร้างบอทและระบุ prefix พร้อมทั้ง intents
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ฟังก์ชันเพื่อดึงข้อมูลสถิติของผู้เล่น
 @bot.command()
-async def stats(ctx, summoner_name: str):
-    await ctx.send("กำลังดึงข้อมูล กรุณารอสักครู่...")
-    stats = get_player_stats(summoner_name)
-    await ctx.send(stats)
-
-# ฟังก์ชันสำหรับการดึงข้อมูลสถิติ
-def get_player_stats(summoner_name):
-    url = f"https://www.op.gg/summoners/th/{summoner_name}"
+async def tier(ctx, role, region = "kr"):
+    await ctx.send("waiting for data...")
     try:
-        response = requests.get(url)
+        champions = get_top_data(role,region)
+        if champions:
+            response = "\n".join([f"{idx + 1}. {champion}" for idx, champion in enumerate(champions)])
+        else:
+            response = "not found"
+    except Exception as e:
+        response = f"Error: {e}"
 
-        if response.status_code == 404:
-            return f"Summoner '{summoner_name}' not found."
+    await ctx.send(response)
 
-        if response.status_code != 200:
-            return f"Failed to retrieve data from the server. Status code: {response.status_code}"
+@bot.command()
+async def counter(ctx, champion, role):
+    await ctx.send("waiting for data...")
+    try:
+        champions = get_counter_data(champion, role)
+        if champions:
+            response = "\n".join([f"{idx + 1}. {champion}" for idx, champion in enumerate(champions)])
+        else:
+            response = "not found."
+    except Exception as e:
+        response = f"Error: {e}"
 
-        soup = BeautifulSoup(response.text, 'html.parser')
+    await ctx.send(response)
 
-        # Debug: Print the initial part of the HTML content
-        print(soup.prettify()[:10000])  # Print the first 1000 characters of the HTML
+@bot.command()
+async def rank(ctx, summoner_name: str):
+    url = f"https://u.gg/lol/profile/th2/{summoner_name}/overview"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            content = await response.text()
 
-        # Get Stat box
-        statbox = soup.find("div", class_="stats-box stats-box--TOTAL css-1egz98l eci27mx0")
-        if not statbox:
-            return "Stat box not found. Please check the console for HTML structure."
+            # Corrected selector
+            selector = "#content > div > div.content-side-padding.w-full.max-w-\[1016px\].mx-auto.md\:box-content > div > div > div.summoner-profile_overview.w-\[1016px\].mt-\[24px\] > div.summoner-profile_overview__side > div.rank-block > div > div:nth-child(1) > div > div.rank-sub-content > div.text-container > div.rank-text > span.rank-title"
+            lp = "#content > div > div.content-side-padding.w-full.max-w-\[1016px\].mx-auto.md\:box-content > div > div > div.summoner-profile_overview.w-\[1016px\].mt-\[24px\] > div.summoner-profile_overview__side > div.rank-block > div > div:nth-child(1) > div > div.rank-sub-content > div.text-container > div.rank-text > span:nth-child(2)"
+            # Parse HTML
+            soup = BeautifulSoup(content, 'html.parser')
+            rank_title_elem = soup.select_one(selector)
+            lp_elem = soup.select_one(lp)
 
-        # Get Win-Lose data
-        win_lose_element = statbox.find("div", class_="win-lose")
-        win_lose = win_lose_element.text.strip() if win_lose_element else "Win-Lose data not found"
+            # Check if element exists
+            if rank_title_elem:
+                rank_title = rank_title_elem.text
+                lp_title = lp_elem.text
+                await ctx.send(f"{summoner_name}'s rank is: {rank_title} {lp_title}")
+            else:
+                await ctx.send(f"Could not find rank information for {summoner_name}")
 
-        # Get KDA data
-        kda = statbox.find("div", class_="ratio").text if statbox.find("div", class_="ratio") else "KDA data not found"
+def get_counter_data(champion, role):
+    url = f"https://u.gg/lol/champions/{champion}/counter?role={role}"
+    response = requests.get(url)
+    soup = BeautifulSoup(response.text, 'html.parser')
+    data_list = []
 
-        return (
-            f"Summoner: {summoner_name}\n"
-            f"Rank Win-Lose: {win_lose}\n"
-            f"KDA: {kda}"
-        )
+    for i in range(1, 11):  # วนลูปจากแถวที่ 1 ถึงแถวที่ 10
+        selector = f'#content > div > div > div > div > div > div.champion-profile-page > div > div:nth-child(1) > div.counters-list.best-win-rate > a:nth-child({i}) > div.col-2 > div.champion-name'
+        data_div = soup.select_one(selector)
 
-    except requests.RequestException as e:
-        return f"An error occurred: {e}"
+        # ตรวจสอบว่าพบข้อมูลหรือไม่
+        if data_div:
+            data_list.append(data_div.text.strip())
+        else:
+            data_list.append("ไม่พบข้อมูล")
 
+    return data_list
 
+def get_top_data(role, region, rank_limit=10):
+    url = f"https://www.op.gg/champions?position={role}&region={region}"
+    response = requests.get(url)
+    soup = BeautifulSoup(response.text, 'html.parser')
 
+    # ค้นหาแถวที่อยู่ใน `tbody`
+    rows = soup.select('table tbody tr')
+
+    # เก็บข้อมูลจากแต่ละแถวที่ต้องการ
+    data_list = []
+
+    for i, row in enumerate(rows):
+        if i >= rank_limit:  # หยุดเมื่อได้ข้อมูลครบตามจำนวนที่ต้องการ
+            break
+
+        data = row.select_one('td.css-1hw6gn9.ez7snl12 a strong')
+
+        if data:
+            data_list.append(data.text.strip())
+
+    return data_list
 
 
 # รันบอท
